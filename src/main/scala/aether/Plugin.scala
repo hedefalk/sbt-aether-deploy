@@ -13,11 +13,13 @@ object Aether extends sbt.Plugin {
   lazy val aetherArtifact = TaskKey[AetherArtifact]("aether-artifact", "Main artifact")
   lazy val coordinates = SettingKey[MavenCoordinates]("aether-coordinates", "The maven coordinates to the main artifact. Should not be overridden")
   lazy val wagons = SettingKey[Seq[WagonWrapper]]("aether-wagons", "The configured extra maven wagon wrappers.")
+  lazy val localRepo = SettingKey[File]("aether-local-repository", "Local repository. Defaults to $HOME/.m2/repository.")
   lazy val deploy = TaskKey[Unit]("aether-deploy", "Deploys to a maven repository.")
   lazy val install = TaskKey[Unit]("aether-install", "Installs to a local maven repository.")
 
   lazy val aetherSettings: Seq[Setting[_]] = Seq(
-    defaultWagons,
+    wagons := Seq.empty,
+    localRepo := Path.userHome / ".m2" / "repository",
     defaultCoordinates,
     defaultArtifact,
     deployTask,
@@ -27,25 +29,23 @@ object Aether extends sbt.Plugin {
   lazy val aetherPublishSettings: Seq[Setting[_]] = aetherSettings ++ Seq(publish <<= deploy)
   lazy val aetherPublishLocalSettings: Seq[Setting[_]] = aetherSettings ++ Seq(publishLocal <<= install.dependsOn(publishLocal))
 
-  lazy val defaultCoordinates = coordinates <<= (organization, name, version, scalaBinaryVersion, crossPaths, sbtPlugin).apply{
-    (o, n, v, scalaV, crossPath, plugin) => {
-      if (plugin) {
-        sys.error("SBT is using maven incorrectly, meaning you will have to use sbt publish for sbt-plugins")
-      }
+  lazy val defaultCoordinates = coordinates <<= (organization, name, version, scalaBinaryVersion, crossPaths).apply{
+    (o, n, v, scalaV, crossPath) => {
       val aId = if (crossPath) "%s_%s".format(n, scalaV) else n
       MavenCoordinates(o, aId, v, None)
     }
   }
-
-  lazy val defaultWagons = wagons := Seq.empty
   
   lazy val defaultArtifact = aetherArtifact <<= (coordinates, Keys.`package` in Compile, makePom in Compile, packagedArtifacts in Compile) map {
     (coords: MavenCoordinates, mainArtifact: File, pom: File, artifacts: Map[Artifact, File]) =>
       createArtifact(artifacts, pom, coords, mainArtifact)
   }
 
-  lazy val deployTask = deploy <<= (publishTo, wagons, credentials, aetherArtifact, streams).map{
-    (repo: Option[Resolver], wag: Seq[WagonWrapper], cred: Seq[Credentials], artifact: AetherArtifact, s: TaskStreams) => {
+  lazy val deployTask = deploy <<= (publishTo, wagons, credentials, aetherArtifact, localRepo, sbtPlugin, streams).map{
+    (repo: Option[Resolver], wag: Seq[WagonWrapper], cred: Seq[Credentials], artifact: AetherArtifact, localRepo: File, plugin: Boolean, s: TaskStreams) => {
+      if (plugin) {
+        sys.error("SBT is using maven incorrectly, meaning you will have to use sbt publish for sbt-plugins")
+      }
       val repository = repo.collect{
         case x: MavenRepository => x
         case _ => sys.error("The configured repo MUST be a maven repo")
@@ -59,7 +59,7 @@ object Aether extends sbt.Plugin {
         c
       }
 
-      deployIt(artifact, wag, repository, maybeCred)(s)
+      deployIt(artifact, wag, repository, localRepo, maybeCred, s)
     }}
 
   lazy val installTask = install <<= (aetherArtifact, streams).map{
@@ -92,17 +92,17 @@ object Aether extends sbt.Plugin {
     r
   }
 
-  private def deployIt(artifact: AetherArtifact, wagons: Seq[WagonWrapper], repo: MavenRepository, credentials: Option[DirectCredentials])(implicit streams: TaskStreams) {
+  private def deployIt(artifact: AetherArtifact, wagons: Seq[WagonWrapper], repo: MavenRepository, localRepo: File, credentials: Option[DirectCredentials], streams: TaskStreams) {
     val request = new DeployRequest()
-    request.setRepository(toRepository(repo, credentials))
     val parent = artifact.toArtifact
     request.addArtifact(parent)
     artifact.subartifacts.foreach(s => request.addArtifact(s.toArtifact(parent)))
-    implicit val system = Booter.newRepositorySystem(wagons)
-    implicit val localRepo = Path.userHome / ".m2" / "repository"
+    request.setRepository(toRepository(repo, credentials))
+
+    val system = Booter.newRepositorySystem(wagons)
 
     try {
-      system.deploy(Booter.newSession, request)
+      system.deploy(Booter.newSession(system, localRepo, streams), request)
     }
     catch {
       case e: Exception => e.printStackTrace(); throw e
