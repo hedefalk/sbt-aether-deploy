@@ -1,2 +1,3 @@
 # Deploy to webdav url
-> aether-deploy
+# Uncomment to enable.
+#> aether-deploy
