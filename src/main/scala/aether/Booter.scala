@@ -32,7 +32,7 @@ object Booter {
     locator.getService(classOf[RepositorySystem])
   }
 
-  def newSession(implicit system: RepositorySystem, localRepoDir: File, streams: TaskStreams[_]): RepositorySystemSession = {
+  def newSession(system: RepositorySystem, localRepoDir: File, streams: TaskStreams[_]): RepositorySystemSession = {
     val localRepo = new LocalRepository(localRepoDir)
     val session = new MavenRepositorySystemSession()
     session.setProxySelector(SystemPropertyProxySelector)

@@ -62,9 +62,9 @@ object Aether extends sbt.Plugin {
       deployIt(artifact, wag, repository, localRepo, maybeCred, s)
     }}
 
-  lazy val installTask = install <<= (aetherArtifact, streams).map{
-    (artifact: AetherArtifact, s: TaskStreams) => {
-      installIt(artifact)(s)
+  lazy val installTask = install <<= (aetherArtifact, localRepo, streams).map{
+    (artifact: AetherArtifact, localRepository: File, s: TaskStreams) => {
+      installIt(artifact, localRepository, s)
     }}
 
   def createArtifact(artifacts: Map[Artifact, sbt.File], pom: sbt.File, coords: MavenCoordinates, mainArtifact: sbt.File): AetherArtifact = {
@@ -109,16 +109,15 @@ object Aether extends sbt.Plugin {
     }
   }
 
-  private def installIt(artifact: AetherArtifact)(implicit streams: TaskStreams) {
+  private def installIt(artifact: AetherArtifact, localRepo: File, streams: TaskStreams) {
     val request = new InstallRequest()
     val parent = artifact.toArtifact
     request.addArtifact(parent)
     artifact.subartifacts.foreach(s => request.addArtifact(s.toArtifact(parent)))
-    implicit val system = Booter.newRepositorySystem(Nil)
-    implicit val localRepo = Path.userHome / ".m2" / "repository"
+    val system = Booter.newRepositorySystem(Nil)
 
     try {
-      system.install(Booter.newSession, request)
+      system.install(Booter.newSession(system, localRepo, streams), request)
     }
     catch {
       case e: Exception => e.printStackTrace(); throw e
