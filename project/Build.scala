@@ -15,7 +15,7 @@ object Build extends sbt.Build {
       name := "aether-deploy", 
       libraryDependencies := deps,
       scalacOptions := Seq("-deprecation", "-unchecked"),
-      scalaVersion := "2.9.2",
+      scalaVersion := "2.10.2",
       crossScalaVersions := Seq("2.10.0", "2.9.2"),
       manifestSetting,
       publishSetting,
